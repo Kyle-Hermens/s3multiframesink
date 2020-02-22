@@ -1,0 +1,40 @@
+[package]
+name = "s3-multiframe-sink"
+version = "0.1.0"
+authors = ["Kyle_Hermens <kyle.hermens@gmail.com>"]
+edition = "2018"
+description = "A gstreamer plugin that splits a video input into multiple files and uploads them to s3"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+#glib = { git = "https://github.com/gtk-rs/glib" }
+#gstreamer = { git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs" }
+#gstreamer-base = { git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs" }
+#gstreamer-video = { git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs" }
+glib = "0.9.3"
+gstreamer = "0.15.3"
+gstreamer-base = "0.15.3"
+gstreamer-video = "0.15.3"
+once_cell = "1.0"
+
+#s3stuff
+#rusoto_core = "0.43.0-beta.1"
+rusoto_core = "0.42.0"
+rusoto_s3 = "0.42.0"
+#rusoto_s3 = "0.43.0-beta.1"
+#tokio = {version="0.2.13", features = ["rt-threaded", "blocking"]}
+#futures = "0.3.4"
+url = "2"
+percent-encoding = "2"
+
+
+
+[lib]
+name = "s3multiframesink"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[build-dependencies]
+gst-plugin-version-helper = "0.1.0"
+#gst-plugin-version-helper = {  git = "https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs" }
