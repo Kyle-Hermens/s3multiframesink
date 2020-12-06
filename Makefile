@@ -1,3 +1,4 @@
+#https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs/-/blob/master/Makefile
 PLUGINS_DIR ?= $(shell pkg-config --variable=pluginsdir gstreamer-1.0)
 
 OS=$(shell uname -s)
@@ -7,7 +8,6 @@ else
 ifeq ($(OS),Darwin)
   SO_SUFFIX=dylib
 else
-  # FIXME: Bad hack, how to know we're on Windows?
   SO_SUFFIX=dll
 endif
 endif

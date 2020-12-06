@@ -48,7 +48,7 @@ COPY deja_vu.mp4 .
 COPY ./.aws/credentials /.aws/credentials
 COPY ./src src
 ENV GST_PLUGIN_PATH=/s3multiframesink/target/release:$GST_PLUGIN_PATH
-RUN cargo build --release
+#RUN cargo install --path . --verbose
 RUN make install
 RUN gst-inspect-1.0 ./target/release/libs3multiframesink.so
 CMD ["/bin/bash"]
