@@ -6,7 +6,6 @@ extern crate gstreamer_base as gst_base;
 extern crate gstreamer_video as gst_video;
 extern crate once_cell;
 
-
 mod s3multiframesink;
 fn plugin_init(plugin: &gst::Plugin) -> Result<(), glib::BoolError> {
     s3multiframesink::register(plugin)?;
@@ -24,4 +23,3 @@ gst_plugin_define!(
     "Fake Repository Field",
     env!("BUILD_REL_DATE")
 );
-

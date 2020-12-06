@@ -4,23 +4,26 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::sync::Mutex;
+use futures_retry::{ErrorHandler, FutureRetry, RetryPolicy};
 use glib::subclass;
 use glib::subclass::prelude::*;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
 use gst_base::subclass::prelude::*;
 use once_cell::sync::Lazy;
-use rusoto_core::{Region, RusotoError};
-use rusoto_s3::{CreateBucketConfiguration, CreateBucketError, CreateBucketRequest, PutObjectRequest, S3, S3Client, PutObjectError};
-use tokio::runtime;
-use std::str::FromStr;
-use futures_retry::{RetryPolicy, FutureRetry, ErrorHandler};
-use std::time::Duration;
-use std::ops::{Mul, Div};
-use rand::Rng;
 use rand::prelude::StdRng;
+use rand::Rng;
+use rusoto_core::{Region, RusotoError};
+use rusoto_s3::{
+    CreateBucketConfiguration, CreateBucketError, CreateBucketRequest, PutObjectError,
+    PutObjectRequest, S3Client, S3,
+};
 use std::convert::TryInto;
+use std::ops::{Div, Mul};
+use std::str::FromStr;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::runtime;
 
 #[derive(Debug)]
 struct Settings {
@@ -35,7 +38,6 @@ impl Default for Settings {
             bucket: Default::default(),
             key: Default::default(),
             region: Region::default(),
-
         }
     }
 }
@@ -125,7 +127,8 @@ impl ObjectSubclass for S3MultiFrameSink {
             gst::PadDirection::Sink,
             gst::PadPresence::Always,
             &png_cap,
-        ).unwrap();
+        )
+        .unwrap();
         klass.add_pad_template(sink_pad_template);
         klass.install_properties(&PROPERTIES);
     }
@@ -139,15 +142,17 @@ impl ObjectSubclass for S3MultiFrameSink {
 }
 
 fn create_image_cap(name: &str) -> gst::Caps {
-    gst::Caps::new_simple(name,
-                          &[
-                              ("width", &gst::IntRange::<i32>::new(0, i32::MAX)),
-                              ("height", &gst::IntRange::<i32>::new(0, i32::MAX)),
-                              ("framerate", &gst::FractionRange::new(
-                                  gst::Fraction::new(0, 1),
-                                  gst::Fraction::new(i32::MAX, 1),
-                              )),
-                          ])
+    gst::Caps::new_simple(
+        name,
+        &[
+            ("width", &gst::IntRange::<i32>::new(0, i32::MAX)),
+            ("height", &gst::IntRange::<i32>::new(0, i32::MAX)),
+            (
+                "framerate",
+                &gst::FractionRange::new(gst::Fraction::new(0, 1), gst::Fraction::new(i32::MAX, 1)),
+            ),
+        ],
+    )
 }
 
 impl ObjectImpl for S3MultiFrameSink {
@@ -165,10 +170,12 @@ impl ObjectImpl for S3MultiFrameSink {
             }
             subclass::Property("region", ..) => {
                 settings.region = Region::from_str(
-                    &value.get::<String>()
+                    &value
+                        .get::<String>()
                         .expect("Type checked upstream")
-                        .expect("region value not provided"))
-                    .expect("invalid region provided");
+                        .expect("region value not provided"),
+                )
+                .expect("invalid region provided");
             }
             _ => unimplemented!(),
         };
@@ -187,15 +194,10 @@ impl ObjectImpl for S3MultiFrameSink {
                 Ok(bucket.to_value())
             }
             subclass::Property("key", ..) => {
-                let key = settings
-                    .key
-                    .as_ref()
-                    .map(|location| location.to_string());
+                let key = settings.key.as_ref().map(|location| location.to_string());
                 Ok(key.to_value())
             }
-            subclass::Property("region", ..) => {
-                Ok(settings.region.name().to_value())
-            }
+            subclass::Property("region", ..) => Ok(settings.region.name().to_value()),
             _ => unimplemented!(),
         }
     }
@@ -248,7 +250,7 @@ impl BaseSinkImpl for S3MultiFrameSink {
         let (frame_num, s3client) = match *state {
             State::Started {
                 ref mut frame_num,
-                ref s3client
+                ref s3client,
             } => (frame_num, s3client),
             State::Stopped => {
                 gst_element_error!(element, gst::CoreError::Failed, ["Not started yet"]);
@@ -286,21 +288,41 @@ struct PutObjectHandler {
 
 impl PutObjectHandler {
     fn new(max_attempts: usize, frame_num: u64) -> Self {
-        PutObjectHandler { max_attempts, frame_num, jitter_max:  Duration::from_secs(32), jitter_base: Duration::from_millis(5), rng: rand::SeedableRng::from_entropy()}
+        PutObjectHandler {
+            max_attempts,
+            frame_num,
+            jitter_max: Duration::from_secs(32),
+            jitter_base: Duration::from_millis(5),
+            rng: rand::SeedableRng::from_entropy(),
+        }
     }
-    fn jitter(&mut self, attempt: usize) -> Duration{
-        let temp = self.jitter_max.min(self.jitter_base.mul((2 as u32).pow(attempt as u32)));
-         temp / 2 + Duration::from_millis(self.rng.gen_range(0, temp.div(2).as_millis()).try_into().unwrap_or(u64::MAX))
+    fn jitter(&mut self, attempt: usize) -> Duration {
+        let temp = self
+            .jitter_max
+            .min(self.jitter_base.mul((2_u32).pow(attempt as u32))); // integer conversion should be safe, unless an absurd amount of retries are expected
+        temp / 2
+            + Duration::from_millis(
+                self.rng
+                    .gen_range(0, temp.div(2).as_millis())
+                    .try_into()
+                    .unwrap_or(u64::MAX),
+            )
     }
 }
 
-impl ErrorHandler<RusotoError<PutObjectError>> for PutObjectHandler
-{
+impl ErrorHandler<RusotoError<PutObjectError>> for PutObjectHandler {
     type OutError = RusotoError<PutObjectError>;
 
-    fn handle(&mut self, attempt: usize, error: RusotoError<PutObjectError>) -> RetryPolicy<Self::OutError> {
+    fn handle(
+        &mut self,
+        attempt: usize,
+        error: RusotoError<PutObjectError>,
+    ) -> RetryPolicy<Self::OutError> {
         if attempt > self.max_attempts {
-            eprintln!("Attempts exhausted uploading frame. Error: {}", error);
+            eprintln!(
+                "Attempts exhausted uploading frame {}. Error: {}",
+                self.frame_num, error
+            );
             RetryPolicy::ForwardError(error)
         } else {
             eprintln!(
@@ -313,22 +335,37 @@ impl ErrorHandler<RusotoError<PutObjectError>> for PutObjectHandler
 }
 
 impl S3MultiFrameSink {
-    fn upload_image_frame(&self, s3client: &S3Client, frame_num: &mut u64, vec: Vec<u8>) -> Result<gst::FlowSuccess, gst::FlowError> {
+    fn upload_image_frame(
+        &self,
+        s3client: &S3Client,
+        frame_num: &mut u64,
+        vec: Vec<u8>,
+    ) -> Result<gst::FlowSuccess, gst::FlowError> {
         *frame_num += 1;
         let settings = self.settings.lock().unwrap();
         let bucket = settings.bucket.as_ref().unwrap().clone();
         let key = settings.key.as_ref().unwrap().clone();
-        RUNTIME.handle().block_on(
-            FutureRetry::new(|| {
-                let put_request = S3MultiFrameSink::create_put_object_request(*frame_num, &vec, &bucket, &key);
-                s3client.put_object(put_request)
-            }, PutObjectHandler::new(3, *frame_num),
-            )
-        ).map(|_| gst::FlowSuccess::Ok)
+        RUNTIME
+            .handle()
+            .block_on(FutureRetry::new(
+                || {
+                    let put_request = S3MultiFrameSink::create_put_object_request(
+                        *frame_num, &vec, &bucket, &key,
+                    );
+                    s3client.put_object(put_request)
+                },
+                PutObjectHandler::new(5, *frame_num),
+            ))
+            .map(|_| gst::FlowSuccess::Ok)
             .map_err(|_| gst::FlowError::Error)
     }
 
-    fn create_put_object_request(frame_count: u64, vec: &Vec<u8>, bucket: &str, key: &str) -> PutObjectRequest {
+    fn create_put_object_request(
+        frame_count: u64,
+        vec: &Vec<u8>,
+        bucket: &str,
+        key: &str,
+    ) -> PutObjectRequest {
         PutObjectRequest {
             bucket: bucket.to_owned(),
             key: format!("{}/frame{:0>2}.png", key, frame_count.clone()),
@@ -339,32 +376,38 @@ impl S3MultiFrameSink {
 
     fn create_bucket_if_extant(&self, s3client: &S3Client) -> Result<(), gst::ErrorMessage> {
         let settings = self.settings.lock().unwrap();
-        let bucket = settings.bucket.as_ref().expect("Bucket should be set by start time").clone();
+        let bucket = settings
+            .bucket
+            .as_ref()
+            .expect("Bucket should be set by start time")
+            .clone();
         RUNTIME.handle().block_on(async {
-            let bucket_creation = s3client.create_bucket(CreateBucketRequest {
-                acl: None,
-                bucket,
-                create_bucket_configuration: Some(CreateBucketConfiguration { location_constraint: Some(settings.region.name().to_string()) }),
-                grant_full_control: None,
-                grant_read: None,
-                grant_read_acp: None,
-                grant_write: None,
-                grant_write_acp: None,
-                object_lock_enabled_for_bucket: None,
-            }).await;
+            let bucket_creation = s3client
+                .create_bucket(CreateBucketRequest {
+                    acl: None,
+                    bucket,
+                    create_bucket_configuration: Some(CreateBucketConfiguration {
+                        location_constraint: Some(settings.region.name().to_string()),
+                    }),
+                    grant_full_control: None,
+                    grant_read: None,
+                    grant_read_acp: None,
+                    grant_write: None,
+                    grant_write_acp: None,
+                    object_lock_enabled_for_bucket: None,
+                })
+                .await;
 
-            bucket_creation
-                .map(|_| ())
-                .or_else(|error|
-                    if let RusotoError::Service(CreateBucketError::BucketAlreadyOwnedByYou(_)) = error {
-                        Ok(())
-                    } else {
-                        Err(
-                            gst_error_msg!(
-                gst::ResourceError::Settings,
-                [&format!("{}", error)]))
-                    })
+            bucket_creation.map(|_| ()).or_else(|error| {
+                if let RusotoError::Service(CreateBucketError::BucketAlreadyOwnedByYou(_)) = error {
+                    Ok(())
+                } else {
+                    Err(gst_error_msg!(
+                        gst::ResourceError::Settings,
+                        [&format!("{}", error)]
+                    ))
+                }
+            })
         })
     }
 }
-
