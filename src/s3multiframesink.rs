@@ -4,25 +4,21 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use futures_retry::{ErrorHandler, FutureRetry, RetryPolicy};
+use crate::put_object_handler::PutObjectHandler;
+use futures_retry::FutureRetry;
 use glib::subclass;
 use glib::subclass::prelude::*;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
 use gst_base::subclass::prelude::*;
 use once_cell::sync::Lazy;
-use rand::prelude::StdRng;
-use rand::Rng;
 use rusoto_core::{Region, RusotoError};
 use rusoto_s3::{
-    CreateBucketConfiguration, CreateBucketError, CreateBucketRequest, PutObjectError,
-    PutObjectRequest, S3Client, S3,
+    CreateBucketConfiguration, CreateBucketError, CreateBucketRequest, PutObjectRequest, S3Client,
+    S3,
 };
-use std::convert::TryInto;
-use std::ops::{Div, Mul};
 use std::str::FromStr;
 use std::sync::Mutex;
-use std::time::Duration;
 use tokio::runtime;
 
 #[derive(Debug)]
@@ -163,7 +159,7 @@ impl ObjectImpl for S3MultiFrameSink {
         let mut settings = self.settings.lock().unwrap();
         match *prop {
             subclass::Property("bucket", ..) => {
-                settings.bucket = value.get::<String>().expect("type checked upstream");
+                settings.bucket = value.get::<String>().expect("Type checked upstream");
             }
             subclass::Property("key", ..) => {
                 settings.key = value.get::<String>().expect("Type checked upstream");
@@ -276,62 +272,6 @@ pub fn register(plugin: &gst::Plugin) -> Result<(), glib::BoolError> {
         gst::Rank::None,
         S3MultiFrameSink::get_type(),
     )
-}
-
-struct PutObjectHandler {
-    max_attempts: usize,
-    frame_num: u64,
-    jitter_max: Duration,
-    jitter_base: Duration,
-    rng: StdRng,
-}
-
-impl PutObjectHandler {
-    fn new(max_attempts: usize, frame_num: u64) -> Self {
-        PutObjectHandler {
-            max_attempts,
-            frame_num,
-            jitter_max: Duration::from_secs(32),
-            jitter_base: Duration::from_millis(5),
-            rng: rand::SeedableRng::from_entropy(),
-        }
-    }
-    fn jitter(&mut self, attempt: usize) -> Duration {
-        let temp = self
-            .jitter_max
-            .min(self.jitter_base.mul((2_u32).pow(attempt as u32))); // integer conversion should be safe, unless an absurd amount of retries are expected
-        temp / 2
-            + Duration::from_millis(
-                self.rng
-                    .gen_range(0, temp.div(2).as_millis())
-                    .try_into()
-                    .unwrap_or(u64::MAX),
-            )
-    }
-}
-
-impl ErrorHandler<RusotoError<PutObjectError>> for PutObjectHandler {
-    type OutError = RusotoError<PutObjectError>;
-
-    fn handle(
-        &mut self,
-        attempt: usize,
-        error: RusotoError<PutObjectError>,
-    ) -> RetryPolicy<Self::OutError> {
-        if attempt > self.max_attempts {
-            eprintln!(
-                "Attempts exhausted uploading frame {}. Error: {}",
-                self.frame_num, error
-            );
-            RetryPolicy::ForwardError(error)
-        } else {
-            eprintln!(
-                "Frame {} Attempt {}/{} has failed",
-                self.frame_num, attempt, self.max_attempts
-            );
-            RetryPolicy::WaitRetry(self.jitter(attempt))
-        }
-    }
 }
 
 impl S3MultiFrameSink {
