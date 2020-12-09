@@ -117,12 +117,19 @@ impl ObjectSubclass for S3MultiFrameSink {
             "This has to be provided",
         );
 
-        let png_cap = create_image_cap("image/png");
+        let image_caps = vec![
+            create_image_cap("image/jpeg"),
+            create_image_cap("image/png"),
+            create_image_cap("image/tiff"),
+        ]
+        .into_iter()
+        .fold(create_image_cap("image/gif"), |a, b| gst::Caps::merge(a, b));
+
         let sink_pad_template = gst::PadTemplate::new(
             "sink",
             gst::PadDirection::Sink,
             gst::PadPresence::Always,
-            &png_cap,
+            &image_caps,
         )
         .unwrap();
         klass.add_pad_template(sink_pad_template);
