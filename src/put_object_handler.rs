@@ -1,4 +1,3 @@
-
 use futures_retry::ErrorHandler;
 use futures_retry::RetryPolicy;
 use rand::prelude::StdRng;

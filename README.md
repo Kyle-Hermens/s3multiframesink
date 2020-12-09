@@ -14,11 +14,9 @@ but the project was put on hold and so further development has ceased.
 ## Usage
 To use this plugin, it is recommended that you run the Dockerfile provided in the project, and execute the gstreamer pipeline from a shell inside of the resulting container. This saves you from
 installing all of the gstreamer dependencies and creating the appropriate environment variables. However, you will need to create a .aws folder in the project with the appropriate 
-[credentials](https://github.com/rusoto/rusoto/blob/master/AWS-CREDENTIALS.md) for the S3 bucket, as documented [here](https://github.com/rusoto/rusoto/blob/master/AWS-CREDENTIALS.md) .
-If you wish to apply the plugin to a new video file, ensure that the file ends up in the running container, either via docker cp or by having it within the project directory before the image is generated. The plugin's [sink cap](https://gstreamer.freedesktop.org/documentation/additional/design/caps.html?gi-language=c) 
+[credentials](https://github.com/rusoto/rusoto/blob/master/AWS-CREDENTIALS.md) for the S3 bucket, as documented [here](https://github.com/rusoto/rusoto/blob/master/AWS-CREDENTIALS.md).
+If you wish to apply the plugin to a new video file, ensure that the file ends up in the running container, either via [docker cp](https://docs.docker.com/engine/reference/commandline/cp/) or by having it within the project directory before the image is generated. The plugin's [sink cap](https://gstreamer.freedesktop.org/documentation/additional/design/caps.html?gi-language=c) 
 only accepts image data, so one of the preceding plugins in the pipeline should be one that produces [image data](https://gstreamer.freedesktop.org/documentation/plugin-development/advanced/media-types.html?gi-language=c), like ```pngenc``` or ```jpegenc```. 
-
-
 
 ### Build the Container
 ```
@@ -49,6 +47,18 @@ gst-launch-1.0 filesrc location=/s3multiframesink/deja_vu.mp4 ! decodebin ! queu
   * The file extension for the output frames.
   * This property should match the input file type, and should not contain a dot.
   * Valid options are ```jpeg``` , ```png```, ```tiff```, ```gif``` or one of the appropriate variants for the same file types, e.g. ```jpg``` for JPEG files
+  
+
+## LICENSE
+
+Like gstreamer-rs, this code can be licensed under either
+
+* Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+  http://www.apache.org/licenses/LICENSE-2.0)
+* MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  http://opensource.org/licenses/MIT)
+
+GStreamer itself is licensed under the Lesser General Public License version 2.1 or (at your option) any later version: https://www.gnu.org/licenses/lgpl-2.1.html
   
     
 
