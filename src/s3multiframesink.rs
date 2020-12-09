@@ -25,6 +25,7 @@ use tokio::runtime;
 struct Settings {
     bucket: Option<String>,
     key: Option<String>,
+    extension: Option<String>,
     region: Region,
 }
 
@@ -33,12 +34,13 @@ impl Default for Settings {
         Settings {
             bucket: Default::default(),
             key: Default::default(),
+            extension: Default::default(),
             region: Region::default(),
         }
     }
 }
 
-static PROPERTIES: [subclass::Property; 3] = [
+static PROPERTIES: [subclass::Property; 4] = [
     subclass::Property("bucket", |name| {
         glib::ParamSpec::string(
             name,
@@ -62,6 +64,15 @@ static PROPERTIES: [subclass::Property; 3] = [
             name,
             "AWS Region",
             "An AWS region (e.g. eu-west-2).",
+            None,
+            glib::ParamFlags::READWRITE,
+        )
+    }),
+    subclass::Property("extension", |name| {
+        glib::ParamSpec::string(
+            name,
+            "File Extension",
+            "The file extension for the output files",
             None,
             glib::ParamFlags::READWRITE,
         )
@@ -171,6 +182,9 @@ impl ObjectImpl for S3MultiFrameSink {
             subclass::Property("key", ..) => {
                 settings.key = value.get::<String>().expect("Type checked upstream");
             }
+            subclass::Property("extension", ..) => {
+                settings.extension = value.get::<String>().expect("Type checked upstream")
+            }
             subclass::Property("region", ..) => {
                 settings.region = Region::from_str(
                     &value
@@ -199,6 +213,13 @@ impl ObjectImpl for S3MultiFrameSink {
             subclass::Property("key", ..) => {
                 let key = settings.key.as_ref().map(|location| location.to_string());
                 Ok(key.to_value())
+            }
+            subclass::Property("extension", ..) => {
+                let extension = settings
+                    .extension
+                    .as_ref()
+                    .map(|location| location.to_string());
+                Ok(extension.to_value())
             }
             subclass::Property("region", ..) => Ok(settings.region.name().to_value()),
             _ => unimplemented!(),
@@ -292,12 +313,13 @@ impl S3MultiFrameSink {
         let settings = self.settings.lock().unwrap();
         let bucket = settings.bucket.as_ref().unwrap().clone();
         let key = settings.key.as_ref().unwrap().clone();
+        let extension = settings.extension.as_ref().unwrap().clone();
         RUNTIME
             .handle()
             .block_on(FutureRetry::new(
                 || {
                     let put_request = S3MultiFrameSink::create_put_object_request(
-                        *frame_num, &vec, &bucket, &key,
+                        *frame_num, &vec, &bucket, &key, &extension,
                     );
                     s3client.put_object(put_request)
                 },
@@ -312,10 +334,16 @@ impl S3MultiFrameSink {
         vec: &Vec<u8>,
         bucket: &str,
         key: &str,
+        file_extension: &str,
     ) -> PutObjectRequest {
         PutObjectRequest {
             bucket: bucket.to_owned(),
-            key: format!("{}/frame{:0>2}.png", key, frame_count.clone()),
+            key: format!(
+                "{}/frame{:0>2}.{}",
+                key,
+                frame_count.clone(),
+                file_extension
+            ),
             body: Some(vec.clone().into()),
             ..Default::default()
         }
