@@ -24,7 +24,7 @@ docker build -t s3multiframesink .
 ```
 ### Run the Container
 ```
-docker build -t s3multiframesink .
+docker run -t s3multiframesink
 ```
 ### Upload frames from a video file in png format
 ```
